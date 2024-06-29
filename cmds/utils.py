@@ -55,8 +55,8 @@ def calc_univariate_regression(y, X, intercept=True, adj=12):
     model = sm.OLS(y, X, missing="drop")
     results = model.fit()
 
-    inter = results.params[0] if intercept else 0
-    beta = results.params[1] if intercept else results.params[0]
+    inter = results.params.iloc[0] if intercept else 0
+    beta = results.params.iloc[1] if intercept else results.params.iloc[0]
 
     summary = dict()
 
@@ -64,7 +64,7 @@ def calc_univariate_regression(y, X, intercept=True, adj=12):
     summary["Beta"] = beta
 
     down_mod = sm.OLS(y_down, X_down, missing="drop").fit()
-    summary["Downside Beta"] = down_mod.params[1] if intercept else down_mod.params[0]
+    summary["Downside Beta"] = down_mod.params.iloc[1] if intercept else down_mod.params.iloc[0]
 
     summary["R-Squared"] = results.rsquared
     summary["Treynor Ratio"] = (y.mean() / beta) * adj
@@ -74,9 +74,11 @@ def calc_univariate_regression(y, X, intercept=True, adj=12):
         if intercept
         else results.resid.std() * np.sqrt(adj)
     )
-
-    return pd.DataFrame(summary, index=[y.name])
-
+    
+    if isinstance(y, pd.Series):
+        return pd.DataFrame(summary, index=[y.name])
+    else:
+        return pd.DataFrame(summary, index=y.columns)
 
 def calc_multivariate_regression(y, X, intercept=True, adj=12):
     """
@@ -100,8 +102,8 @@ def calc_multivariate_regression(y, X, intercept=True, adj=12):
     results = model.fit()
     summary = dict()
 
-    inter = results.params[0] if intercept else 0
-    betas = results.params[1:] if intercept else results.params
+    inter = results.params.iloc[0] if intercept else 0
+    betas = results.params.iloc[1:] if intercept else results.params
 
     summary["Alpha"] = inter * adj
     summary["R-Squared"] = results.rsquared
@@ -112,12 +114,12 @@ def calc_multivariate_regression(y, X, intercept=True, adj=12):
         summary[f"{col} Beta"] = betas[i]
 
     summary["Information Ratio"] = (inter / results.resid.std()) * np.sqrt(adj)
-    summary["Tracking Error"] = (
-        inter / summary["Information Ratio"]
-        if intercept
-        else results.resid.std() * np.sqrt(adj)
-    )
-    return pd.DataFrame(summary, index=[y.name])
+    summary["Tracking Error"] = results.resid.std() * np.sqrt(adj)
+    
+    if isinstance(y, pd.Series):
+        return pd.DataFrame(summary, index=[y.name])
+    else:
+        return pd.DataFrame(summary, index=y.columns)
 
 
 def calc_iterative_regression(y, X, intercept=True, one_to_many=False, adj=12):
@@ -204,7 +206,7 @@ def calc_return_metrics(data, as_df=False, adj=12):
     return pd.DataFrame(summary, index=data.columns) if as_df else summary
 
 
-def calc_risk_metrics(data, as_df=False, adj=12):
+def calc_risk_metrics(data, as_df=False, var=0.05):
     """
     Calculate risk metrics for a DataFrame of assets.
 
@@ -212,6 +214,7 @@ def calc_risk_metrics(data, as_df=False, adj=12):
         data (pd.DataFrame): DataFrame of asset returns.
         as_df (bool, optional): Return a DF or a dict. Defaults to False.
         adj (int, optional): Annualizatin. Defaults to 12.
+        var (float, optional): VaR level. Defaults to 0.05.
 
     Returns:
         Union[dict, DataFrame]: Dict or DataFrame of risk metrics.
@@ -219,8 +222,8 @@ def calc_risk_metrics(data, as_df=False, adj=12):
     summary = dict()
     summary["Skewness"] = data.skew()
     summary["Excess Kurtosis"] = data.kurtosis()
-    summary["VaR (0.05)"] = data.quantile(0.05, axis=0)
-    summary["CVaR (0.05)"] = data[data <= data.quantile(0.05, axis=0)].mean()
+    summary[f"VaR ({var})"] = data.quantile(var, axis=0)
+    summary[f"CVaR ({var})"] = data[data <= data.quantile(var, axis=0)].mean()
     summary["Min"] = data.min()
     summary["Max"] = data.max()
 
@@ -250,7 +253,7 @@ def calc_risk_metrics(data, as_df=False, adj=12):
     return pd.DataFrame(summary, index=data.columns) if as_df else summary
 
 
-def calc_performance_metrics(data, adj=12):
+def calc_performance_metrics(data, adj=12, var=0.05):
     """
     Aggregating function for calculating performance metrics. Returns both
     risk and performance metrics.
@@ -258,11 +261,15 @@ def calc_performance_metrics(data, adj=12):
     Args:
         data (pd.DataFrame): DataFrame of asset returns.
         adj (int, optional): Annualization. Defaults to 12.
+        var (float, optional): VaR level. Defaults to 0.05.
 
     Returns:
         DataFrame: DataFrame of performance metrics.
     """
-    summary = {**calc_return_metrics(data, adj), **calc_risk_metrics(data, adj)}
+    summary = {
+        **calc_return_metrics(data=data, adj=adj),
+        **calc_risk_metrics(data=data, var=var),
+    }
     summary["Calmar Ratio"] = summary["Annualized Return"] / abs(
         summary["Max Drawdown"]
     )
@@ -274,24 +281,43 @@ def calc_performance_metrics(data, adj=12):
 # -----------------------
 
 
-def plot_correlation_matrix(corrs):
+def plot_correlation_matrix(corrs, ax=None):
+    if ax:
+        sns.heatmap(
+            corrs,
+            annot=True,
+            cmap="coolwarm",
+            vmin=-1,
+            vmax=1,
+            linewidths=0.7,
+            annot_kws={"size": 10},
+            fmt=".2f",
+            square=True,
+            cbar_kws={"shrink": 0.75},
+            ax=ax,
+        )
     # Correlation helper function.
-    return sns.heatmap(
-        corrs,
-        annot=True,
-        cmap="coolwarm",
-        vmin=-1,
-        vmax=1,
-        linewidths=0.7,
-        annot_kws={"size": 10},
-        fmt=".2f",
-        square=True,
-        cbar_kws={"shrink": 0.75},
-    )
+    else:
+        ax = sns.heatmap(
+            corrs,
+            annot=True,
+            cmap="coolwarm",
+            vmin=-1,
+            vmax=1,
+            linewidths=0.7,
+            annot_kws={"size": 10},
+            fmt=".2f",
+            square=True,
+            cbar_kws={"shrink": 0.75},
+        )
+
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, horizontalalignment="right")
+    return ax
 
 
 def print_max_min_correlation(corrs):
-    # Correlation helper function.
+    # Correlation helper function. Prints the min/max/absolute value
+    # for the correlation matrix.
     corr_series = corrs.unstack()
     corr_series = corr_series[corr_series != 1]
 
@@ -320,8 +346,11 @@ def print_max_min_correlation(corrs):
 
 def calc_tangency_portfolio(mean_rets, cov_matrix):
     """
+    NOTE: This *does not* assume access to the risk-free rate. Use
+        Mark's portfolio.py for tangency/GMV/etc. portfolios.
+
     Function to calculate tangency portfolio weights. Comes from the
-    formula seen in class (Week 1).
+    formula seen in class.
 
     Args:
         mean_rets: Vector of mean returns.
@@ -332,11 +361,14 @@ def calc_tangency_portfolio(mean_rets, cov_matrix):
     """
     inv_cov = np.linalg.inv(cov_matrix)
     ones = np.ones(mean_rets.shape)
-    return (inv_cov @ mean_rets) / (ones.T @ inv_cov @ mean_rets)
+    return (inv_cov @ mean_rets) / (ones.T @ (inv_cov @ mean_rets))
 
 
 def calc_gmv_portfolio(cov_matrix):
     """
+    NOTE: This *does not* assume access to the risk-free rate. Use
+        Mark's portfolio.py for tangency/GMV/etc. portfolios.
+
     Function to calculate the weights of the global minimum variance portfolio.
 
     Args:
@@ -354,7 +386,7 @@ def calc_gmv_portfolio(cov_matrix):
     return cov_inv @ one_vector / (one_vector @ cov_inv @ (one_vector))
 
 
-def calc_mv_portfolio(mean_rets, cov_matrix, target=None):
+def calc_mv_portfolio(mean_rets, cov_matrix, excess=True, target=None):
     """
     Function to calculate the weights of the mean-variance portfolio. If
     target is not specified, then the function will return the tangency portfolio.
@@ -367,6 +399,10 @@ def calc_mv_portfolio(mean_rets, cov_matrix, target=None):
         target (optional):  Target mean return. Defaults to None. Note: must be adjusted for
                             annualization the same time-frequency as the mean returns. If the
                             mean returns are monthly, the target must be monthly as well.
+        excess (bool, optional): Whether the mean returns are excess returns. Defaults to False. 
+                            Setting it to true assumes that we can borrow or lend at the risk-free,
+                            ie. that the the weights of the portfolio do not need to sum to 1. 
+                            
 
     Returns:
         Vector of MV portfolio weights.
@@ -375,10 +411,15 @@ def calc_mv_portfolio(mean_rets, cov_matrix, target=None):
 
     if target is None:
         return w_tan
-
-    w_gmv = calc_gmv_portfolio(cov_matrix)
-    delta = (target - mean_rets @ w_gmv) / (mean_rets @ w_tan - mean_rets @ w_gmv)
-    return delta * w_tan + (1 - delta) * w_gmv
+    elif not excess:
+        w_gmv = calc_gmv_portfolio(cov_matrix)
+        delta = (target - mean_rets @ w_gmv) / (mean_rets @ w_tan - mean_rets @ w_gmv)
+        return delta * w_tan + (1 - delta) * w_gmv
+    else:
+        ones = np.ones(mean_rets.shape)
+        cov_inv = np.linalg.inv(cov_matrix)
+        delta = (ones @ cov_inv @ mean_rets) / (mean_rets.T @ cov_inv @ ones) 
+        return target * delta * w_tan
 
 
 # -----------------------------------------------

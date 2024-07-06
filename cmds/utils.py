@@ -46,8 +46,8 @@ def calc_univariate_regression(y, X, intercept=True, adj=12):
     Returns:
         DataFrame: Summary of regression results
     """
-    X_down = X[y < 0]
-    y_down = y[y < 0]
+    X_down = X[X.iloc[:, 0] < 0].copy()
+    y_down = y[X.iloc[:, 0] < 0].copy()
     if intercept:
         X = sm.add_constant(X)
         X_down = sm.add_constant(X_down)
@@ -65,7 +65,6 @@ def calc_univariate_regression(y, X, intercept=True, adj=12):
 
     down_mod = sm.OLS(y_down, X_down, missing="drop").fit()
     summary["Downside Beta"] = down_mod.params.iloc[1] if intercept else down_mod.params.iloc[0]
-
     summary["R-Squared"] = results.rsquared
     summary["Treynor Ratio"] = (y.mean() / beta) * adj
     summary["Information Ratio"] = (inter / results.resid.std()) * np.sqrt(adj)
@@ -147,7 +146,7 @@ def calc_iterative_regression(y, X, intercept=True, one_to_many=False, adj=12):
         raise TypeError("X and y must both be DataFrames.")
 
     if one_to_many:
-        if isinstance(X, pd.Series) or X.shape[1] > 1:
+        if X.shape[1] > 1:
             summary = pd.concat(
                 [
                     calc_multivariate_regression(y[col], X, intercept, adj)

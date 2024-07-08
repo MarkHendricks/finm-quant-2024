@@ -381,7 +381,7 @@ def calc_gmv_portfolio(cov_matrix):
     except TypeError:
         cov_inv = np.linalg.inv(np.array(cov_matrix))
 
-    one_vector = np.ones(len(cov_matrix.index))
+    one_vector = np.ones(len(cov_matrix))
     return cov_inv @ one_vector / (one_vector @ cov_inv @ (one_vector))
 
 
@@ -407,18 +407,16 @@ def calc_mv_portfolio(mean_rets, cov_matrix, excess=True, target=None):
         Vector of MV portfolio weights.
     """
     w_tan = calc_tangency_portfolio(mean_rets, cov_matrix)
+    w_gmv = calc_gmv_portfolio(cov_matrix)
 
     if target is None:
         return w_tan
     elif not excess:
-        w_gmv = calc_gmv_portfolio(cov_matrix)
-        delta = (target - mean_rets @ w_gmv) / (mean_rets @ w_tan - mean_rets @ w_gmv)
+        delta = (target - (mean_rets @ w_gmv)) / ((mean_rets @ w_tan) - (mean_rets @ w_gmv))
         return delta * w_tan + (1 - delta) * w_gmv
     else:
-        ones = np.ones(mean_rets.shape)
-        cov_inv = np.linalg.inv(cov_matrix)
-        delta = (ones @ cov_inv @ mean_rets) / (mean_rets.T @ cov_inv @ ones) 
-        return target * delta * w_tan
+        delta = target / (mean_rets @ w_tan)
+        return delta * w_tan
 
 
 # -----------------------------------------------
